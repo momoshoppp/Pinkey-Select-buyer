@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- 版本標記：白標買家版 v1.1.0 ( 運費動態 + 促銷鎖價修正 + LINE動態 + 品牌名 + 移除準備中按鈕 ) -->
+    <!-- 版本標記：白標買家版 v1.1.1 ( 運費動態 + 促銷鎖價修正 + LINE動態 + 品牌名 + 合併訂單支援 ) -->
     <title>查詢訂單</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
@@ -85,9 +85,9 @@
           projectId: "pinkeyselect",
           storageBucket: "pinkeyselect.firebasestorage.app",
           messagingSenderId: "240325793645",
-          appId: "1:240325793645:web:9f089a472555d71c7f6c64"
+          appId: "1:240325793645:web:9f089a472555d71c7f6c6"
         };
-        const LINE_OA_ID = "";
+        const LINE_OA_ID = "請填入";
         // ═══════════════════════════════════════════════════════════════
 
         let app = null, auth = null, db = null, FIREBASE_OK = false;
@@ -310,14 +310,20 @@
             
             if (myItems.length === 0) return { currentOrder: null, pastOrders: [] };
 
-            // 按「日期 (yyyy-mm-dd)」分組，每組就是一張訂單
+            // ✅ 支援合併訂單：有 mergeGroupId 的訂單歸同一組，否則按日期分組
             const grouped = {};
             myItems.forEach(o => {
                 if (!o.createdAt || !o.createdAt.seconds) return;
-                const d = new Date(o.createdAt.seconds * 1000);
-                const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                if (!grouped[dateKey]) {
-                    grouped[dateKey] = {
+                let groupKey;
+                if (o.mergeGroupId) {
+                    groupKey = `merged__${o.mergeGroupId}`;
+                } else {
+                    const d = new Date(o.createdAt.seconds * 1000);
+                    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    groupKey = dateKey;
+                }
+                if (!grouped[groupKey]) {
+                    grouped[groupKey] = {
                         name: o.customerName,
                         codeGroups: {},
                         itemTotal: 0,
@@ -325,10 +331,16 @@
                         status: 'pending',
                         date: o.createdAt,
                         creditApplied: 0,
-                        _archived: o._archived
+                        _archived: o._archived,
+                        _isMerged: !!o.mergeGroupId,
+                        dates: []
                     };
                 }
-                const group = grouped[dateKey];
+                const group = grouped[groupKey];
+                // 收集日期範圍
+                const od = new Date(o.createdAt.seconds * 1000);
+                const odKey = `${od.getFullYear()}-${String(od.getMonth()+1).padStart(2,'0')}-${String(od.getDate()).padStart(2,'0')}`;
+                if (!group.dates.includes(odKey)) group.dates.push(odKey);
                 if (!group.codeGroups[o.itemCode]) {
                     group.codeGroups[o.itemCode] = { items: [], totalQty: 0, priceStr: o.price };
                 }
@@ -496,9 +508,12 @@
                     ) : myOrder ? (
                       <div className="bg-white rounded-[3rem] p-8 shadow-2xl border border-white space-y-7 relative">
 
-                        {/* 日期標記 */}
+                        {/* 日期標記（合併訂單顯示範圍） */}
                         <div className="absolute top-8 right-8 flex items-center gap-1 text-[11px] font-black italic text-[#6B6B6B]">
-                           <Calendar size={11}/> {formatDate(myOrder.date)}
+                           <Calendar size={11}/>
+                           {myOrder._isMerged && myOrder.dates && myOrder.dates.length > 1
+                               ? `${myOrder.dates[myOrder.dates.length-1].slice(5)} ~ ${myOrder.dates[0].slice(5)}`
+                               : formatDate(myOrder.date)}
                         </div>
                         
                         {/* 狀態顯示 - 已加入 shipped */}
